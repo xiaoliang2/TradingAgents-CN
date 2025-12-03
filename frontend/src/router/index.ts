@@ -88,6 +88,15 @@ const routes: RouteRecordRaw[] = [
           title: '股票筛选',
           requiresAuth: true
         }
+      },
+      {
+        path: 'imported-data',
+        name: 'ImportedDataScreening',
+        component: () => import('@/views/Screening/ImportedData.vue'),
+        meta: {
+          title: '导入数据筛选',
+          requiresAuth: true
+        }
       }
     ]
   },
@@ -331,6 +340,15 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/System/SchedulerManagement.vue'),
         meta: {
           title: '定时任务',
+          requiresAuth: true
+        }
+      },
+      {
+        path: 'csv-import',
+        name: 'CSVImport',
+        component: () => import('@/views/System/CSVImport.vue'),
+        meta: {
+          title: 'CSV数据导入',
           requiresAuth: true
         }
       }

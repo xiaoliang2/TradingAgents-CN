@@ -179,3 +179,77 @@ class DatabaseService:
     def _serialize_document(self, doc: dict) -> dict:
         """序列化文档，处理特殊类型（委托子模块）"""
         return _serialize_doc(doc)
+    
+    async def get_all_collections(self) -> List[str]:
+        """
+        获取所有集合名称
+        """
+        db = get_mongo_db()
+        return await db.list_collection_names()
+    
+    async def import_data(self, collection_name: str, data: List[Dict[str, Any]], mode: str = "insert") -> Dict[str, Any]:
+        """
+        直接导入数据列表到指定集合
+        
+        参数:
+            collection_name: 目标集合名称
+            data: 要导入的数据列表
+            mode: 导入模式，可选值: insert, update, upsert
+            
+        返回:
+            导入结果
+        """
+        db = get_mongo_db()
+        collection = db[collection_name]
+        
+        success_count = 0
+        error_count = 0
+        errors = []
+        
+        for i, doc in enumerate(data):
+            try:
+                # 转换日期字段
+                doc = _db_backups._convert_date_fields(doc)
+                
+                if mode == "insert":
+                    # 插入模式：直接插入新文档
+                    await collection.insert_one(doc)
+                    success_count += 1
+                elif mode == "update":
+                    # 更新模式：需要找到匹配的文档
+                    # 尝试使用 _id 或其他唯一标识符
+                    if "_id" in doc:
+                        result = await collection.update_one(
+                            {"_id": doc["_id"]},
+                            {"$set": doc}
+                        )
+                        if result.matched_count > 0:
+                            success_count += 1
+                        else:
+                            error_count += 1
+                            errors.append(f"第 {i+1} 行：未找到匹配的文档")
+                    else:
+                        error_count += 1
+                        errors.append(f"第 {i+1} 行：更新模式需要 _id 字段")
+                elif mode == "upsert":
+                    # 新增或更新模式
+                    if "_id" in doc:
+                        await collection.update_one(
+                            {"_id": doc["_id"]},
+                            {"$set": doc},
+                            upsert=True
+                        )
+                        success_count += 1
+                    else:
+                        # 没有 _id 则直接插入
+                        await collection.insert_one(doc)
+                        success_count += 1
+            except Exception as e:
+                error_count += 1
+                errors.append(f"第 {i+1} 行：{str(e)}")
+        
+        return {
+            "success_count": success_count,
+            "error_count": error_count,
+            "errors": errors
+        }

@@ -32,10 +32,14 @@
       <template #title>任务中心</template>
     </el-menu-item>
 
-    <el-menu-item index="/screening">
-      <el-icon><Search /></el-icon>
-      <template #title>股票筛选</template>
-    </el-menu-item>
+    <el-sub-menu index="/screening">
+      <template #title>
+        <el-icon><Search /></el-icon>
+        <span>股票筛选</span>
+      </template>
+      <el-menu-item index="/screening">标准筛选</el-menu-item>
+      <el-menu-item index="/screening/imported-data">导入数据筛选</el-menu-item>
+    </el-sub-menu>
 
     <el-menu-item index="/favorites">
       <el-icon><Star /></el-icon>
@@ -87,6 +91,7 @@
         <el-menu-item index="/settings/system-logs">系统日志</el-menu-item>
         <el-menu-item index="/settings/sync">多数据源同步</el-menu-item>
         <el-menu-item index="/settings/scheduler">定时任务</el-menu-item>
+        <el-menu-item index="/settings/csv-import">CSV数据导入</el-menu-item>
         <el-menu-item index="/settings/usage">使用统计</el-menu-item>
       </el-sub-menu>
     </el-sub-menu>
