@@ -59,9 +59,12 @@
             <el-form-item label="目标数据表">
               <el-select 
                 v-model="importForm.targetTable" 
-                placeholder="请选择目标数据表" 
+                placeholder="选择现有表或输入新表名创建表" 
                 :loading="loadingTables"
                 style="width: 100%"
+                filterable
+                allow-create
+                default-first-option
               >
                 <el-option 
                   v-for="table in tables" 
@@ -70,6 +73,15 @@
                   :value="table" 
                 />
               </el-select>
+              <div class="el-form-item__help">
+                <el-tag type="info" size="small">提示</el-tag>
+                <span v-if="importForm.importMode === 'insert'">
+                  选择现有表或输入新表名自动创建新表
+                </span>
+                <span v-else>
+                  只能选择现有表进行更新操作
+                </span>
+              </div>
             </el-form-item>
             <el-form-item label="导入模式">
               <el-select v-model="importForm.importMode" placeholder="请选择导入模式">

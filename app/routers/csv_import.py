@@ -26,13 +26,12 @@ class CSVImportRequest(BaseModel):
 
 class CSVImportResponse(BaseModel):
     success: bool
-    imported: int
-    failed: int
+    data: dict
     message: str
 
 
-@router.get("/tables", response_model=List[str])
-async def get_tables(current_user: dict = Depends(get_current_user)):
+@router.get("/tables")
+async def get_tables():
     """
     获取支持的表列表
     """
@@ -44,7 +43,11 @@ async def get_tables(current_user: dict = Depends(get_current_user)):
         # 过滤掉系统集合（以system.开头的集合）
         valid_tables = [col for col in collections if not col.startswith("system.")]
         logger.info(f"✅ 获取表列表成功，共 {len(valid_tables)} 个表")
-        return valid_tables
+        return {
+            "success": True,
+            "data": valid_tables,
+            "message": "获取表列表成功"
+        }
     except Exception as e:
         logger.error(f"❌ 获取表列表失败: {e}")
         raise HTTPException(status_code=500, detail="获取表列表失败")
@@ -129,8 +132,10 @@ async def import_csv(request: CSVImportRequest, current_user: dict = Depends(get
         
         return {
             "success": True,
-            "imported": result["success_count"],
-            "failed": result["error_count"],
+            "data": {
+                "imported": result["success_count"],
+                "failed": result["error_count"]
+            },
             "message": f"数据导入完成，成功 {result['success_count']} 条，失败 {result['error_count']} 条"
         }
     except HTTPException:

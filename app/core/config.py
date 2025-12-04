@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     # MongoDB配置
     MONGODB_HOST: str = Field(default="localhost")
     MONGODB_PORT: int = Field(default=27017)
-    MONGODB_USERNAME: str = Field(default="")
-    MONGODB_PASSWORD: str = Field(default="")
+    MONGODB_USERNAME: str = Field(default="admin")
+    MONGODB_PASSWORD: str = Field(default="tradingagents123")
     MONGODB_DATABASE: str = Field(default="tradingagents")
     MONGODB_AUTH_SOURCE: str = Field(default="admin")
     MONGO_MAX_CONNECTIONS: int = Field(default=100)
@@ -284,6 +284,7 @@ class Settings(BaseSettings):
     # Ignore any extra environment variables present in .env or process env
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+# 创建settings实例
 settings = Settings()
 
 # 自动将代理配置设置到环境变量

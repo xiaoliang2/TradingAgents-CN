@@ -11,8 +11,10 @@ interface CSVImportParams {
 // CSV导入响应
 interface CSVImportResponse {
   success: boolean
-  imported: number
-  failed: number
+  data: {
+    imported: number
+    failed: number
+  }
   message: string
 }
 
@@ -68,7 +70,7 @@ export const csvImportApi = {
    * @returns 验证结果
    */
   validateData: async (data: any[], columns: string[]) => {
-    return await ApiClient.post('/api/csv/validate', { data, columns })
+    return await ApiClient.post<any>('/api/csv/validate', { data, columns })
   },
   
   /**

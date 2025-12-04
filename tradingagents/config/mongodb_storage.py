@@ -33,7 +33,14 @@ class MongoDBStorage:
             raise ImportError("pymongo is not installed. Please install it with: pip install pymongo")
         
         # 修复硬编码问题 - 如果没有提供连接字符串且环境变量也未设置，则抛出错误
+        # 调试：打印所有相关环境变量
+        logger.info(f"🔍 [MongoDBStorage] 初始化 - 传入的connection_string: {connection_string}")
+        logger.info(f"🔍 [MongoDBStorage] 环境变量 MONGODB_CONNECTION_STRING: {os.getenv('MONGODB_CONNECTION_STRING')}")
+        logger.info(f"🔍 [MongoDBStorage] 环境变量 MONGODB_HOST: {os.getenv('MONGODB_HOST')}")
+        
         self.connection_string = connection_string or os.getenv("MONGODB_CONNECTION_STRING")
+        logger.info(f"🔍 [MongoDBStorage] 最终使用的connection_string: {self.connection_string}")
+        
         if not self.connection_string:
             raise ValueError(
                 "MongoDB连接字符串未配置。请通过以下方式之一进行配置：\n"
