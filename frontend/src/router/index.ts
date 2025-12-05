@@ -92,10 +92,10 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'imported-data',
         name: 'ImportedDataScreening',
-        component: () => import('@/views/Screening/ImportedData.vue'),
+        component: () => import('@/views/Screening/NewImportedData.vue'),
         meta: {
           title: '导入数据筛选',
-          requiresAuth: true
+          requiresAuth: false
         }
       }
     ]
@@ -211,6 +211,13 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/queue', redirect: '/tasks' },
   { path: '/analysis/history', redirect: '/tasks?tab=completed' },
+  // API 测试页面
+  { 
+    path: '/test-api', 
+    name: 'TestApi', 
+    component: () => import('@/views/TestApi.vue'),
+    meta: { title: 'API 测试', hideInMenu: false, requiresAuth: false }
+  },
   {
     path: '/reports',
     name: 'Reports',

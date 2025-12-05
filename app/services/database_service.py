@@ -206,22 +206,60 @@ class DatabaseService:
         error_count = 0
         errors = []
         
+        # 获取当前日期，格式：YYYY-MM-DD
+        from datetime import datetime
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        
+        # 同一日期更新导入同一数据表的为全量覆盖
+        # 1. 检查是否有当天导入的数据
+        existing_count = await collection.count_documents({"导入日期": current_date})
+        
+        if existing_count > 0:
+            # 2. 如果有当天导入的数据，先删除所有当天的数据
+            logger.info(f"📋 检测到表 {collection_name} 中已有 {existing_count} 条 {current_date} 导入的数据")
+            logger.info(f"🔄 执行全量覆盖：删除表 {collection_name} 中所有 {current_date} 导入的数据")
+            
+            delete_result = await collection.delete_many({"导入日期": current_date})
+            logger.info(f"✅ 成功删除 {delete_result.deleted_count} 条当天数据")
+        
         for i, doc in enumerate(data):
             try:
-                # 转换日期字段
-                doc = _db_backups._convert_date_fields(doc)
+                # 在所有导入数据中增加一列日期（后端双重保障）
+                doc_with_date = doc.copy()
+                # 强制使用当前日期作为导入日期，确保全量覆盖逻辑正常工作
+                doc_with_date["导入日期"] = current_date
+                logger.info(f"📅 为第 {i+1} 行数据添加导入日期: {current_date}")
                 
+                # 直接插入数据，不进行日期字段转换
                 if mode == "insert":
                     # 插入模式：直接插入新文档
-                    await collection.insert_one(doc)
+                    await collection.insert_one(doc_with_date)
                     success_count += 1
                 elif mode == "update":
                     # 更新模式：需要找到匹配的文档
-                    # 尝试使用 _id 或其他唯一标识符
-                    if "_id" in doc:
+                    # 尝试使用股票代码作为唯一标识符（CSV数据中可能没有_id字段）
+                    if "股票代码" in doc_with_date:
+                        # 使用股票代码和导入日期作为查询条件
+                        query = {
+                            "股票代码": doc_with_date["股票代码"],
+                            "导入日期": current_date
+                        }
                         result = await collection.update_one(
-                            {"_id": doc["_id"]},
-                            {"$set": doc}
+                            query,
+                            {"$set": doc_with_date}
+                        )
+                        if result.matched_count > 0:
+                            success_count += 1
+                        else:
+                            # 如果没有找到匹配的文档，改为插入
+                            await collection.insert_one(doc_with_date)
+                            success_count += 1
+                            logger.info(f"⚠️ 第 {i+1} 行：未找到匹配文档，改为插入")
+                    elif "_id" in doc_with_date:
+                        # 使用_id作为唯一标识符
+                        result = await collection.update_one(
+                            {"_id": doc_with_date["_id"]},
+                            {"$set": doc_with_date}
                         )
                         if result.matched_count > 0:
                             success_count += 1
@@ -229,20 +267,35 @@ class DatabaseService:
                             error_count += 1
                             errors.append(f"第 {i+1} 行：未找到匹配的文档")
                     else:
-                        error_count += 1
-                        errors.append(f"第 {i+1} 行：更新模式需要 _id 字段")
+                        # 没有唯一标识符，直接插入
+                        await collection.insert_one(doc_with_date)
+                        success_count += 1
+                        logger.info(f"⚠️ 第 {i+1} 行：无唯一标识符，直接插入")
                 elif mode == "upsert":
                     # 新增或更新模式
-                    if "_id" in doc:
+                    if "股票代码" in doc_with_date:
+                        # 使用股票代码和导入日期作为查询条件
+                        query = {
+                            "股票代码": doc_with_date["股票代码"],
+                            "导入日期": current_date
+                        }
                         await collection.update_one(
-                            {"_id": doc["_id"]},
-                            {"$set": doc},
+                            query,
+                            {"$set": doc_with_date},
+                            upsert=True
+                        )
+                        success_count += 1
+                    elif "_id" in doc_with_date:
+                        # 使用_id作为唯一标识符
+                        await collection.update_one(
+                            {"_id": doc_with_date["_id"]},
+                            {"$set": doc_with_date},
                             upsert=True
                         )
                         success_count += 1
                     else:
-                        # 没有 _id 则直接插入
-                        await collection.insert_one(doc)
+                        # 没有唯一标识符，直接插入
+                        await collection.insert_one(doc_with_date)
                         success_count += 1
             except Exception as e:
                 error_count += 1

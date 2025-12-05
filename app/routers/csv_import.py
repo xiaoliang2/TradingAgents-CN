@@ -50,11 +50,15 @@ async def get_tables():
         }
     except Exception as e:
         logger.error(f"❌ 获取表列表失败: {e}")
-        raise HTTPException(status_code=500, detail="获取表列表失败")
+        return {
+            "success": False,
+            "data": [],
+            "message": f"获取表列表失败: {str(e)}"
+        }
 
 
 @router.post("/validate")
-async def validate_csv(request: CSVValidateRequest, current_user: dict = Depends(get_current_user)):
+async def validate_csv(request: CSVValidateRequest):
     """
     验证CSV数据格式
     """
@@ -92,9 +96,11 @@ async def validate_csv(request: CSVValidateRequest, current_user: dict = Depends
 
 
 @router.post("/import", response_model=CSVImportResponse)
-async def import_csv(request: CSVImportRequest, current_user: dict = Depends(get_current_user)):
+async def import_csv(request: CSVImportRequest):
     """
     导入CSV数据到指定表
+    
+    同一日期更新导入同一数据表的为全量覆盖
     """
     try:
         table = request.table
@@ -142,7 +148,9 @@ async def import_csv(request: CSVImportRequest, current_user: dict = Depends(get
         raise
     except Exception as e:
         logger.error(f"❌ CSV数据导入失败: {e}")
-        raise HTTPException(status_code=500, detail="数据导入失败")
+        logger.error(f"❌ 错误详情: {str(e)}")
+        logger.error(f"❌ 错误类型: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail=f"数据导入失败: {str(e)}")
 
 
 # 新增：数据筛选请求模型
@@ -156,7 +164,7 @@ class DataFilterRequest(BaseModel):
 
 
 @router.post("/filter")
-async def filter_imported_data(request: DataFilterRequest, current_user: dict = Depends(get_current_user)):
+async def filter_imported_data(request: DataFilterRequest):
     """
     筛选导入的数据
     """
@@ -224,4 +232,11 @@ async def filter_imported_data(request: DataFilterRequest, current_user: dict = 
         raise
     except Exception as e:
         logger.error(f"❌ 数据筛选失败: {e}")
-        raise HTTPException(status_code=500, detail="数据筛选失败")
+        return {
+            "success": False,
+            "data": [],
+            "total": 0,
+            "page": request.page,
+            "page_size": request.page_size,
+            "message": f"数据筛选失败: {str(e)}"
+        }

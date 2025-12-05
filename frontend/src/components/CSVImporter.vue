@@ -84,11 +84,23 @@
               </div>
             </el-form-item>
             <el-form-item label="导入模式">
-              <el-select v-model="importForm.importMode" placeholder="请选择导入模式">
+              <el-select v-model="importForm.importMode" placeholder="请选择导入模式" @change="handleImportModeChange">
                 <el-option label="新增" value="insert" />
                 <el-option label="更新" value="update" />
                 <el-option label="新增或更新" value="upsert" />
               </el-select>
+              <div class="el-form-item__help">
+                <el-tag type="warning" size="small">注意</el-tag>
+                <span v-if="importForm.importMode === 'update'">
+                  更新模式需要数据中包含唯一标识符（如_id），否则会导入失败
+                </span>
+                <span v-else-if="importForm.importMode === 'upsert'">
+                  新增或更新模式：如果有唯一标识符则更新，否则新增
+                </span>
+                <span v-else>
+                  新增模式：直接插入新数据
+                </span>
+              </div>
             </el-form-item>
           </el-form>
         </div>
@@ -133,6 +145,8 @@ const columns = ref<string[]>([])
 const importing = ref(false)
 // 表列表
 const tables = ref<string[]>([])
+// 导入的表列表（从本地存储获取）
+const importedTables = ref<string[]>([])
 // 加载表列表状态
 const loadingTables = ref(false)
 
@@ -147,13 +161,44 @@ const previewData = computed(() => {
   return parsedData.value.slice(0, 10)
 })
 
+// 加载导入的表列表（从本地存储）
+const loadImportedTables = () => {
+  try {
+    const savedTables = localStorage.getItem('importedTables')
+    if (savedTables) {
+      importedTables.value = JSON.parse(savedTables)
+    }
+  } catch (error) {
+    console.error('加载导入表列表失败:', error)
+    importedTables.value = []
+  }
+}
+
+// 保存导入的表列表到本地存储
+const saveImportedTables = (tableName: string) => {
+  if (!importedTables.value.includes(tableName)) {
+    importedTables.value.push(tableName)
+    localStorage.setItem('importedTables', JSON.stringify(importedTables.value))
+  }
+}
+
 // 加载表列表
 const loadTables = async () => {
   try {
     loadingTables.value = true
+    // 加载导入的表列表
+    loadImportedTables()
+    
     const response = await csvImportApi.getTables()
     if (response.success) {
-      tables.value = response.data
+      // 获取所有可用表
+      const allTables = response.data
+      
+      // 无论什么模式，都只显示通过CSV导入界面创建的表（保存在本地存储中的表名）
+      // 同时，用户可以输入新表名创建新表
+      tables.value = allTables.filter(table => 
+        importedTables.value.includes(table)
+      )
     }
   } catch (error) {
     console.error('加载表列表失败:', error)
@@ -163,8 +208,31 @@ const loadTables = async () => {
   }
 }
 
-// 组件挂载时加载表列表
-onMounted(() => {
+// 初始化函数，确保pingtoudi表被添加到本地存储中
+const initImportedTables = async () => {
+  try {
+    // 加载现有导入的表列表
+    loadImportedTables()
+    
+    // 获取所有可用表
+    const response = await csvImportApi.getTables()
+    if (response.success) {
+      const allTables = response.data
+      // 检查是否存在pingtoudi表
+      if (allTables.includes('pingtoudi') && !importedTables.value.includes('pingtoudi')) {
+        // 将pingtoudi表添加到本地存储中
+        saveImportedTables('pingtoudi')
+      }
+      // 可以添加更多需要默认显示的表
+    }
+  } catch (error) {
+    console.error('初始化导入表列表失败:', error)
+  }
+}
+
+// 组件挂载时加载表列表和初始化
+onMounted(async () => {
+  await initImportedTables()
   loadTables()
 })
 
@@ -193,14 +261,40 @@ const handleParseCSV = async () => {
 
   try {
     const text = await readFileAsText(file)
-    const { headers, rows } = parseCSV(text)
+    let { headers, rows } = parseCSV(text)
     
-    columns.value = headers
-    parsedData.value = rows
+    // 确保日期列被正确添加，即使CSV文件中已经存在同名列
+    const dateColumnName = '导入日期'
+    const currentDate = new Date().toISOString().split('T')[0] // 格式：YYYY-MM-DD
     
-    ElMessage.success(`成功解析 ${rows.length} 条数据`)
+    console.log('📅 准备添加导入日期:', currentDate)
+    console.log('📋 原始列名:', headers)
+    
+    // 为每一行数据添加日期列
+    const rowsWithDate = rows.map(row => {
+      const newRow = { ...row }
+      newRow[dateColumnName] = currentDate // 添加或覆盖导入日期列
+      return newRow
+    })
+    
+    // 更新列名，确保包含导入日期列
+    let headersWithDate = [...headers]
+    if (!headersWithDate.includes(dateColumnName)) {
+      headersWithDate = [...headers, dateColumnName]
+    }
+    
+    // 保存到响应式变量
+    columns.value = headersWithDate
+    parsedData.value = rowsWithDate
+    
+    console.log('✅ 已为所有数据添加导入日期')
+    console.log('📋 更新后的列名:', headersWithDate)
+    console.log('📋 前2行数据（含日期）:', parsedData.value.slice(0, 2))
+    
+    ElMessage.success(`成功解析 ${rows.length} 条数据，并添加了导入日期列`)
   } catch (error) {
     console.error('解析CSV失败:', error)
+    console.error('失败详情:', error.stack)
     ElMessage.error('解析CSV文件失败，请检查文件格式')
   }
 }
@@ -278,6 +372,12 @@ const parseCSVLine = (line: string): string[] => {
   return result
 }
 
+// 导入模式变化处理
+const handleImportModeChange = () => {
+  // 重新加载表列表，确保根据导入模式显示正确的表
+  loadTables()
+}
+
 // 重置导入
 const resetImport = () => {
   fileList.value = []
@@ -287,6 +387,8 @@ const resetImport = () => {
     targetTable: '',
     importMode: 'insert'
   }
+  // 重新加载表列表
+  loadTables()
 }
 
 // 数据验证
@@ -348,18 +450,28 @@ const validateData = () => {
 
 // 处理导入
 const handleImport = async () => {
+  console.log('🔍 开始处理导入')
+  
   if (parsedData.value.length === 0) {
+    console.log('⚠️ 未解析CSV文件')
     ElMessage.warning('请先解析CSV文件')
     return
   }
 
   if (!importForm.value.targetTable) {
+    console.log('⚠️ 未选择目标数据表')
     ElMessage.warning('请选择目标数据表')
     return
   }
 
+  console.log(`📊 准备导入 ${parsedData.value.length} 条数据到 ${importForm.value.targetTable} 表`)
+  console.log(`📋 导入模式: ${importForm.value.importMode}`)
+  console.log(`📋 列数: ${columns.value.length}`)
+  console.log(`📋 前2行数据:`, parsedData.value.slice(0, 2))
+
   // 数据验证
   if (!validateData()) {
+    console.log('⚠️ 数据验证失败')
     // 询问用户是否继续导入
     try {
       await ElMessageBox.confirm(
@@ -371,9 +483,13 @@ const handleImport = async () => {
           type: 'warning'
         }
       )
+      console.log('✅ 用户确认继续导入')
     } catch {
+      console.log('❌ 用户取消导入')
       return
     }
+  } else {
+    console.log('✅ 数据验证通过')
   }
 
   try {
@@ -386,8 +502,11 @@ const handleImport = async () => {
         type: 'warning'
       }
     )
+    console.log('✅ 用户确认导入')
 
     importing.value = true
+    
+    console.log('🚀 开始调用API导入数据')
     
     // 调用API导入数据
     const response = await csvImportApi.importData({
@@ -397,19 +516,58 @@ const handleImport = async () => {
       columns: columns.value
     })
     
+    console.log('📡 API响应:', response)
+    
     if (response.success) {
-      ElMessage.success(`数据导入成功，共导入 ${response.data.imported} 条，失败 ${response.data.failed} 条`)
-      resetImport()
-    } else {
-      ElMessage.error(response.message || '数据导入失败')
-    }
+        console.log('✅ API调用成功')
+        console.log('📊 API返回结果:', response.data)
+        
+        // 保存导入的表名到本地存储
+        saveImportedTables(importForm.value.targetTable)
+        // 刷新表列表
+        await loadTables()
+        
+        // 根据实际导入情况显示不同的提示信息
+        const totalImported = response.data.imported
+        const totalFailed = response.data.failed
+        
+        console.log(`📊 导入统计: 成功 ${totalImported} 条，失败 ${totalFailed} 条`)
+        
+        // 检查是否所有数据都失败了
+        if (totalFailed > 0 && totalImported === 0) {
+          // 所有数据都失败了，显示失败提示
+          console.log(`❌ 所有数据导入失败`)
+          ElMessage.error(`数据导入失败，共导入 ${totalImported} 条，失败 ${totalFailed} 条`)
+        } else if (totalImported > 0) {
+          // 有成功导入的记录，显示成功提示
+          console.log(`🎉 数据导入完成，部分成功`)
+          ElMessage.success(`数据导入完成，共导入 ${totalImported} 条，失败 ${totalFailed} 条`)
+        } else if (totalFailed > 0) {
+          // 没有成功导入的记录，但有失败的记录，显示失败提示
+          console.log(`❌ 数据导入失败`)
+          ElMessage.error(`数据导入失败，共导入 ${totalImported} 条，失败 ${totalFailed} 条`)
+        } else {
+          // 没有成功也没有失败的记录，显示警告提示
+          console.log(`⚠️ 数据导入完成，但没有导入任何记录`)
+          ElMessage.warning(`数据导入完成，但没有导入任何记录，共导入 ${totalImported} 条，失败 ${totalFailed} 条`)
+        }
+        
+        resetImport()
+      } else {
+        console.log(`❌ API调用失败: ${response.message}`)
+        ElMessage.error(response.message || '数据导入失败')
+      }
   } catch (error: any) {
     if (error !== 'cancel') {
-      console.error('导入失败:', error)
+      console.error('❌ 导入失败:', error)
+      console.error('❌ 错误栈:', error.stack)
       ElMessage.error(error.message || '数据导入失败')
+    } else {
+      console.log('❌ 用户取消导入')
     }
   } finally {
     importing.value = false
+    console.log('🔚 导入流程结束')
   }
 }
 </script>

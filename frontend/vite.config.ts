@@ -54,7 +54,7 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         secure: false,
-        ws: true  // 🔥 启用 WebSocket 代理支持
+        ws: false  // 暂时禁用 WebSocket 代理，只代理 HTTP 请求
       }
     }
   },

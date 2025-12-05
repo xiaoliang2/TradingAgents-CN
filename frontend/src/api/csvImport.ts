@@ -52,7 +52,7 @@ export const csvImportApi = {
    * @returns 导入结果
    */
   importData: async (params: CSVImportParams) => {
-    return await ApiClient.post<CSVImportResponse>('/api/csv/import', params)
+    return await ApiClient.post<CSVImportResponse>('/api/csv/import', params, { skipAuth: true })
   },
   
   /**
@@ -60,7 +60,7 @@ export const csvImportApi = {
    * @returns 表列表
    */
   getTables: async () => {
-    return await ApiClient.get<string[]>('/api/csv/tables')
+    return await ApiClient.get<string[]>('/api/csv/tables', undefined, { skipAuth: true })
   },
   
   /**
@@ -70,7 +70,7 @@ export const csvImportApi = {
    * @returns 验证结果
    */
   validateData: async (data: any[], columns: string[]) => {
-    return await ApiClient.post<any>('/api/csv/validate', { data, columns })
+    return await ApiClient.post<any>('/api/csv/validate', { data, columns }, { skipAuth: true })
   },
   
   /**
@@ -79,6 +79,6 @@ export const csvImportApi = {
    * @returns 筛选结果
    */
   filterData: async (params: DataFilterParams) => {
-    return await ApiClient.post<DataFilterResponse>('/api/csv/filter', params)
+    return await ApiClient.post<DataFilterResponse>('/api/csv/filter', params, { skipAuth: true })
   }
 }

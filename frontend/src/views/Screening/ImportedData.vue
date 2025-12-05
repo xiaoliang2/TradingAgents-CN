@@ -63,14 +63,20 @@
                   v-model="filter.value" 
                   placeholder="输入筛选值" 
                 />
-                <el-input-number 
-                  v-else-if="filter.type === 'number'" 
-                  v-model="filter.value" 
-                  :min="filter.min" 
-                  :max="filter.max" 
-                  :step="filter.step || 1" 
-                  placeholder="输入数值" 
-                />
+                <!-- 数值类型使用范围筛选 -->
+                <div v-else-if="filter.type === 'number'" class="range-filter">
+                  <el-input 
+                    v-model="filter.minValue" 
+                    placeholder="最小值" 
+                    type="number"
+                    style="margin-bottom: 10px;"
+                  />
+                  <el-input 
+                    v-model="filter.maxValue" 
+                    placeholder="最大值" 
+                    type="number"
+                  />
+                </div>
                 <el-select 
                   v-else-if="filter.type === 'select'" 
                   v-model="filter.value" 
@@ -208,21 +214,58 @@ const sort = ref({
 // 筛选条件
 const filters = ref({})
 
+// 导入的表列表（从本地存储获取）
+const importedTables = ref<string[]>([])
+
+// 加载导入的表列表
+const loadImportedTables = () => {
+  try {
+    const savedTables = localStorage.getItem('importedTables')
+    if (savedTables) {
+      importedTables.value = JSON.parse(savedTables)
+    }
+    console.log('📋 从本地存储加载的导入表列表:', importedTables.value)
+  } catch (error) {
+    console.error('加载导入表列表失败:', error)
+    importedTables.value = []
+  }
+}
+
 // 加载表列表
 const loadTables = async () => {
   try {
     loadingTables.value = true
+    console.log('开始调用 getTables API...')
+    
+    // 加载导入的表列表（保存在本地存储中的表名）
+    loadImportedTables()
+    
     const response = await csvImportApi.getTables()
-    if (response.success) {
-      tables.value = response.data
+    console.log('getTables API 响应:', response)
+    if (response && response.success) {
+      // 获取所有可用表
+      const allTables = response.data || []
+      console.log('📋 从API获取的所有表:', allTables)
+      
+      // 只显示通过CSV导入界面创建的表（保存在本地存储中的表名）
+      tables.value = allTables.filter(table => 
+        importedTables.value.includes(table)
+      )
+      console.log('📋 过滤后的表列表:', tables.value)
+      
       if (tables.value.length > 0 && !selectedTable.value) {
         selectedTable.value = tables.value[0]
+        console.log('默认选择的表:', selectedTable.value)
         handleTableChange(selectedTable.value)
       }
+    } else {
+      console.error('getTables API 返回失败:', response)
+      ElMessage.error(response?.message || '加载表列表失败')
     }
-  } catch (error) {
-    console.error('加载表列表失败:', error)
-    ElMessage.error('加载表列表失败')
+  } catch (error: any) {
+    console.error('加载表列表异常:', error)
+    console.error('异常详情:', error.message, error.stack)
+    ElMessage.error('加载表列表失败: ' + (error.message || '未知错误'))
   } finally {
     loadingTables.value = false
   }
@@ -234,6 +277,7 @@ const handleTableChange = async (table: string) => {
 
   try {
     loading.value = true
+    console.log('开始分析表结构:', table)
     // 这里可以根据表结构动态生成筛选条件
     // 先获取表的一些样本数据来分析结构
     await analyzeTableStructure(table)
@@ -241,9 +285,10 @@ const handleTableChange = async (table: string) => {
     resetFilters()
     // 执行筛选
     handleFilter()
-  } catch (error) {
+  } catch (error: any) {
     console.error('分析表结构失败:', error)
-    ElMessage.error('分析表结构失败')
+    console.error('异常详情:', error.message, error.stack)
+    ElMessage.error('分析表结构失败: ' + (error.message || '未知错误'))
   } finally {
     loading.value = false
   }
@@ -257,6 +302,16 @@ const analyzeTableStructure = async (table: string) => {
     // 清空之前的列
     tableColumns.value = []
     
+    console.log('开始调用 filterData API 获取样本数据...')
+    console.log('API 参数:', {
+      table,
+      filters: {},
+      page: 1,
+      page_size: 10,
+      sort: '',
+      order: ''
+    })
+    
     // 先获取一些样本数据来分析表结构
     const response = await csvImportApi.filterData({
       table,
@@ -267,50 +322,123 @@ const analyzeTableStructure = async (table: string) => {
       order: ''
     })
     
-    if (response.success) {
+    console.log('filterData API 响应:', response)
+    
+    if (response && response.success) {
       if (response.data && response.data.length > 0) {
-        // 获取所有列名
+        // 收集所有可能的字段（检查前10条记录）
+        const allPossibleColumns = new Set<string>()
         const firstRow = response.data[0]
-        if (firstRow) {
-          tableColumns.value = Object.keys(firstRow)
+        const sampleRows = response.data.slice(0, Math.min(10, response.data.length))
+        
+        // 收集所有出现过的字段
+        sampleRows.forEach(row => {
+          Object.keys(row).forEach(key => {
+            if (key !== '_id') {
+              allPossibleColumns.add(key)
+            }
+          })
+        })
+        
+        // 获取所有列名，排除_id字段
+        const allColumns = Object.keys(firstRow)
+        const columnsToDisplay = allColumns.filter(col => col !== '_id')
+        
+        // 确保导入日期字段被添加到显示列中
+        if (!columnsToDisplay.includes('导入日期')) {
+          columnsToDisplay.push('导入日期')
+        }
+        
+        tableColumns.value = columnsToDisplay
+        
+        // 清空之前的筛选条件
+        dynamicFilters.value = []
+        
+        // 为每一列生成筛选条件
+        columnsToDisplay.forEach(col => {
+          // 检查该字段是否存在于数据中
+          const fieldExists = allPossibleColumns.has(col)
+          let sampleValue: any = ''
+          let fieldType = 'string'
           
-          // 为每一列生成筛选条件
-          tableColumns.value.forEach(col => {
-            // 根据列名和样本数据类型推断字段类型
-            const sampleValue = firstRow[col]
-            let fieldType = 'string'
-            
-            // 推断字段类型
-            if (typeof sampleValue === 'number') {
-              fieldType = 'number'
-            } else if (typeof sampleValue === 'string') {
-              // 检查是否是日期格式
-              if (/^\d{4}-\d{2}-\d{2}/.test(sampleValue) || sampleValue.includes('T') || sampleValue.includes(':')) {
-                fieldType = 'date'
+          // 首先根据字段名推断类型
+          // 检查字段名是否包含数值相关关键词
+          const numericKeywords = ['%', '元', '亿', '万', '金额', '值', '数', '率', '量', '价']
+          const hasNumericKeyword = numericKeywords.some(keyword => col.includes(keyword))
+          
+          // 如果字段名包含数值相关关键词，直接识别为数值类型
+          if (hasNumericKeyword) {
+            fieldType = 'number'
+          }
+          // 如果字段名不包含数值关键词，再根据字段值推断类型
+          else if (fieldExists) {
+            // 找第一个包含该字段的记录
+            const sampleRow = sampleRows.find(row => row.hasOwnProperty(col))
+            if (sampleRow) {
+              sampleValue = sampleRow[col]
+              
+              // 推断字段类型
+              if (typeof sampleValue === 'number') {
+                fieldType = 'number'
+              } else if (typeof sampleValue === 'string') {
+                // 检查是否是日期格式
+                if (/^\d{4}-\d{2}-\d{2}/.test(sampleValue) || sampleValue.includes('T') || sampleValue.includes(':')) {
+                  fieldType = 'date'
+                } else {
+                  // 检查是否是数值字符串（包括带有单位的数值、百分比）
+                  // 移除单位、千分位逗号、百分比符号，然后尝试转换为数字
+                  // 处理百分比形式（如 "10.50%"）
+                  // 处理金额形式（如 "2.33亿"、"12,345.67万"）
+                  const numericStr = sampleValue.replace(/[\s,，亿万千佰拾%]+/g, '')
+                  if (!isNaN(Number(numericStr)) && numericStr.trim() !== '') {
+                    fieldType = 'number'
+                  }
+                }
               }
             }
-            
-            // 生成筛选条件
-            dynamicFilters.value.push({
-              field: col,
-              label: col,
-              type: fieldType,
-              value: ''
-            })
-          })
+          }
           
-          console.log(`✅ 分析表结构完成，表: ${table}，列: ${tableColumns.value.length} 个`)
-        }
+          // 特别处理导入日期字段，强制为日期类型
+          if (col === '导入日期') {
+            fieldType = 'date'
+          }
+          
+          // 生成筛选条件
+          dynamicFilters.value.push({
+            field: col,
+            label: col,
+            type: fieldType,
+            value: '',
+            minValue: null,
+            maxValue: null
+          })
+        })
+        
+        console.log(`✅ 分析表结构完成，表: ${table}，列: ${tableColumns.value.length} 个，排除了 _id 字段`)
       } else {
         // 表为空，没有数据
         console.log(`⚠️ 表 ${table} 为空，没有数据可分析`)
+        // 默认显示导入日期筛选选项
+        tableColumns.value = ['导入日期']
+        dynamicFilters.value = [
+          {
+            field: '导入日期',
+            label: '导入日期',
+            type: 'date',
+            value: '',
+            minValue: null,
+            maxValue: null
+          }
+        ]
       }
     } else {
-      ElMessage.error(response.message || '获取表数据失败')
+      console.error('filterData API 返回失败:', response)
+      ElMessage.error(response?.message || '获取表数据失败')
     }
-  } catch (error) {
-    console.error('分析表结构失败:', error)
-    ElMessage.error('分析表结构失败')
+  } catch (error: any) {
+    console.error('分析表结构异常:', error)
+    console.error('异常详情:', error.message, error.stack)
+    ElMessage.error('分析表结构失败: ' + (error.message || '未知错误'))
   }
 }
 
@@ -318,6 +446,12 @@ const analyzeTableStructure = async (table: string) => {
 const resetFilters = () => {
   dynamicFilters.value.forEach(filter => {
     filter.value = ''
+    
+    // 重置数值类型的范围筛选条件
+    if (filter.type === 'number') {
+      filter.minValue = null
+      filter.maxValue = null
+    }
   })
   pagination.value.current = 1
 }
@@ -344,8 +478,28 @@ const handleFilter = async () => {
     
     // 收集动态筛选条件
     dynamicFilters.value.forEach(filter => {
-      if (filter.value !== '' && filter.value !== undefined && filter.value !== null) {
-        filterParams.filters[filter.field] = filter.value
+      if (filter.type === 'number') {
+        // 数值类型处理范围筛选
+        const field = filter.field
+        const hasMin = filter.minValue !== null && filter.minValue !== '' && filter.minValue !== undefined
+        const hasMax = filter.maxValue !== null && filter.maxValue !== '' && filter.maxValue !== undefined
+        
+        if (hasMin || hasMax) {
+          filterParams.filters[field] = {}
+          
+          if (hasMin) {
+            filterParams.filters[field]['$gte'] = Number(filter.minValue)
+          }
+          
+          if (hasMax) {
+            filterParams.filters[field]['$lte'] = Number(filter.maxValue)
+          }
+        }
+      } else {
+        // 非数值类型处理普通筛选
+        if (filter.value !== '' && filter.value !== undefined && filter.value !== null) {
+          filterParams.filters[filter.field] = filter.value
+        }
       }
     })
     
@@ -380,14 +534,17 @@ const formatCellValue = (column: string, value: any) => {
   }
   
   // 日期格式处理
-  if (typeof value === 'string' && (column.toLowerCase().includes('date') || column.toLowerCase().includes('time'))) {
-    try {
-      const date = new Date(value)
-      if (!isNaN(date.getTime())) {
-        return date.toLocaleString()
+  if (typeof value === 'string') {
+    // 检查是否是导入日期字段
+    if (column === '导入日期' || column.toLowerCase().includes('date') || column.toLowerCase().includes('time')) {
+      try {
+        const date = new Date(value)
+        if (!isNaN(date.getTime())) {
+          return date.toLocaleDateString() // 只显示日期，不显示时间
+        }
+      } catch {
+        // 不是有效日期，返回原始值
       }
-    } catch {
-      // 不是有效日期，返回原始值
     }
   }
   
@@ -427,8 +584,16 @@ const handleExport = () => {
 
 // 组件挂载时加载表列表
 onMounted(() => {
+  console.log('📌 ImportedData.vue 组件已挂载，开始初始化...')
   loadTables()
 })
+
+// 添加组件初始化日志
+defineExpose({
+  name: 'ImportedData'
+})
+
+console.log('📦 ImportedData.vue 组件已加载，准备挂载...')
 </script>
 
 <style scoped>
